@@ -1,87 +1,233 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <title>Đang tải bài hát...</title>
-  <style>
-    body {
-      background: #121212;
-      color: #eee;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      font-family: Arial, sans-serif;
-    }
-    video {
-      width: 90%;
-      max-width: 600px;
-      border-radius: 8px;
-      box-shadow: 0 0 10px #00f;
-      background: black;
-    }
-    h1 {
-      margin: 20px 0 10px 0;
-      font-size: 1.5rem;
-      text-align: center;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình phát nhạc HLS độc lập</title>
+    
+    <!-- Thư viện HLS.js để phát nhạc -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- Thư viện jsmediatags để đọc metadata từ file nhạc -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;700&display=swap');
+
+        body {
+            font-family: 'Be Vietnam Pro', sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .input-wrapper {
+            margin-bottom: 25px;
+        }
+
+        .input-wrapper label {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        #url-input {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Be Vietnam Pro', sans-serif;
+        }
+
+        #play-button {
+            padding: 12px 20px;
+            border: none;
+            background-color: #1890ff;
+            color: white;
+            font-weight: 700;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        
+        #play-button:hover {
+            background-color: #007ae6;
+        }
+        #play-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .player-wrapper {
+            text-align: center;
+        }
+
+        #song-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 0 5px 0;
+            color: #1a1a1a;
+            min-height: 28px;
+        }
+
+        #song-artist {
+            font-size: 16px;
+            margin: 0 0 20px 0;
+            color: #666;
+            min-height: 20px;
+        }
+
+        #status-message {
+            color: #007ae6;
+            min-height: 20px;
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 8px;
+            outline: none;
+            background-color: #000;
+            margin-top: 15px;
+        }
+    </style>
 </head>
 <body>
-  <h1 id="songTitle">Đang tải bài hát...</h1>
-  <video id="video" controls></video>
+    <div class="container">
+        <div class="input-wrapper">
+            <label for="url-input">Dán link HLS (.m3u8) vào đây:</label>
+            <div class="input-group">
+                <input type="text" id="url-input" value="https://pub-17967b384d31452abcc6c0adb3cd8457.r2.dev/music_tco7ap5k/playlist.m3u8" placeholder="https://...">
+                <button id="play-button">Phân tích & Phát nhạc</button>
+            </div>
+            <p id="status-message"></p>
+        </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script>
-    const video = document.getElementById('video');
-    const title = document.getElementById('songTitle');
-    const playlistUrl = 'https://pub-17967b384d31452abcc6c0adb3cd8457.r2.dev/music_tco7ap5k/playlist.m3u8';
+        <div class="player-wrapper">
+            <h1 id="song-title"></h1>
+            <p id="song-artist"></p>
+            <video id="audioPlayer" controls preload="metadata"></video>
+        </div>
+    </div>
 
-    // Hàm lấy tên bài hát từ metadata M3U8
-    async function fetchSongTitle(url) {
-      try {
-        const response = await fetch(url);
-        const text = await response.text();
-        const lines = text.split('\n');
-        // Tìm dòng #EXTINF (thường chứa tên bài)
-        const extinfLine = lines.find(line => line.startsWith('#EXTINF'));
-        if (extinfLine) {
-          // Cú pháp: #EXTINF:duration,Title
-          const title = extinfLine.split(',')[1]?.trim();
-          return title || 'Bài hát không rõ tên';
-        }
-      } catch (e) {
-        console.error('Lỗi tải metadata:', e);
-      }
-      return 'Bài hát không rõ tên';
-    }
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlInput = document.getElementById('url-input');
+            const playButton = document.getElementById('play-button');
+            const audioPlayer = document.getElementById('audioPlayer');
+            const songTitle = document.getElementById('song-title');
+            const songArtist = document.getElementById('song-artist');
+            const statusMessage = document.getElementById('status-message');
+            let hls;
 
-    async function setupPlayer() {
-      const songName = await fetchSongTitle(playlistUrl);
-      document.title = songName;
-      title.textContent = songName;
+            async function processAndPlayUrl() {
+                playButton.disabled = true;
+                playButton.textContent = 'Đang xử lý...';
+                statusMessage.style.color = '#007ae6';
+                statusMessage.textContent = 'Bắt đầu phân tích link...';
+                songTitle.textContent = '';
+                songArtist.textContent = '';
 
-      if (Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(playlistUrl);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play();
+                const m3u8Url = urlInput.value.trim();
+                if (!m3u8Url || !m3u8Url.endsWith('.m3u8')) {
+                    statusMessage.style.color = '#ff4d4f';
+                    statusMessage.textContent = 'Lỗi: Vui lòng nhập một link .m3u8 hợp lệ.';
+                    resetButton();
+                    return;
+                }
+
+                try {
+                    // Bước 1: Tải file playlist .m3u8
+                    statusMessage.textContent = 'Đang tải playlist...';
+                    const response = await fetch(m3u8Url);
+                    if (!response.ok) throw new Error(`Không thể tải playlist. Mã lỗi: ${response.status}`);
+                    const playlistText = await response.text();
+
+                    // Bước 2: Tìm URI của file init từ playlist
+                    statusMessage.textContent = 'Đang tìm file metadata...';
+                    const mapMatch = playlistText.match(/#EXT-X-MAP:.*URI="([^"]+)"/);
+                    if (!mapMatch || !mapMatch[1]) {
+                        throw new Error('Không tìm thấy file init (EXT-X-MAP) trong playlist.');
+                    }
+                    const initUri = mapMatch[1];
+                    const baseUrl = m3u8Url.substring(0, m3u8Url.lastIndexOf('/') + 1);
+                    const initFileUrl = baseUrl + initUri;
+
+                    // Bước 3: Đọc metadata từ file init bằng jsmediatags
+                    statusMessage.textContent = `Đang đọc metadata từ: ${initUri}`;
+                    const tags = await getTags(initFileUrl);
+
+                    songTitle.textContent = tags.title || 'Không rõ tên bài hát';
+                    songArtist.textContent = tags.artist || 'Không rõ nghệ sĩ';
+                    statusMessage.textContent = 'Tải metadata thành công! Bắt đầu phát...';
+
+                    // Bước 4: Phát nhạc bằng HLS.js
+                    if (Hls.isSupported()) {
+                        if (hls) hls.destroy();
+                        hls = new Hls();
+                        hls.loadSource(m3u8Url);
+                        hls.attachMedia(audioPlayer);
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => audioPlayer.play());
+                    } else {
+                        audioPlayer.src = m3u8Url;
+                        audioPlayer.play();
+                    }
+
+                } catch (error) {
+                    console.error('Đã xảy ra lỗi trong quá trình xử lý:', error);
+                    statusMessage.style.color = '#ff4d4f';
+                    statusMessage.textContent = `Lỗi: ${error.message}`;
+                } finally {
+                    resetButton();
+                }
+            }
+
+            // Hàm helper để dùng jsmediatags với Promise cho dễ xử lý
+            function getTags(url) {
+                return new Promise((resolve, reject) => {
+                    new window.jsmediatags.Reader(url)
+                        .setTagsToRead(["title", "artist"])
+                        .read({
+                            onSuccess: (tag) => resolve(tag.tags),
+                            onError: (error) => reject(new Error(`Không thể đọc tags từ file init: ${error.type}`))
+                        });
+                });
+            }
+            
+            function resetButton() {
+                playButton.disabled = false;
+                playButton.textContent = 'Phân tích & Phát nhạc';
+            }
+
+            playButton.addEventListener('click', processAndPlayUrl);
+            urlInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    processAndPlayUrl();
+                }
+            });
         });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari hỗ trợ natively
-        video.src = playlistUrl;
-        video.addEventListener('loadedmetadata', () => {
-          video.play();
-        });
-      } else {
-        title.textContent = 'Trình duyệt không hỗ trợ phát HLS.';
-      }
-    }
-
-    setupPlayer();
-  </script>
+    </script>
 </body>
 </html>
