@@ -1,0 +1,294 @@
+<!doctype html>
+
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>m3u8 Player</title>
+  <style>
+    :root{--bg:#000;--muted:#888;--accent:#1db954}
+    html,body{height:100%;margin:0;background:var(--bg);color:#fff;font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    .app{max-width:1000px;margin:18px auto;padding:18px}
+    header{display:flex;gap:12px;align-items:center}
+    h1{font-size:18px;margin:0}.controls-row{display:flex;gap:12px;align-items:center;margin-top:12px}
+input[type=text]{flex:1;padding:10px;border-radius:8px;border:1px solid #222;background:#111;color:#fff}
+button{background:var(--accent);border:none;padding:10px 12px;border-radius:8px;color:#000;cursor:pointer}
+
+.player-wrap{margin-top:18px;background:#000;padding:10px;border-radius:10px}
+video{width:100%;max-height:62vh;border-radius:8px;background:#000;display:block}
+
+.player-ui{display:flex;align-items:center;gap:10px;padding-top:8px}
+.big-progress{flex:1;display:flex;align-items:center;gap:12px}
+.time{min-width:72px;text-align:center;color:var(--muted);font-size:13px}
+input[type=range]{width:100%;-webkit-appearance:none;background:transparent;height:20px}
+input[type=range]::-webkit-slider-runnable-track{height:6px;background:#222;border-radius:999px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);margin-top:-4px}
+
+.playlist{margin-top:14px;background:#070707;border-radius:8px;padding:8px;max-height:220px;overflow:auto}
+.item{padding:8px;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.item:hover{background:#0d0d0d}
+.item .title{flex:1;color:#fff;font-size:14px}
+.item .meta{color:var(--muted);font-size:12px;margin-left:12px}
+.item button{background:transparent;color:var(--muted);border:1px solid #222;padding:6px;border-radius:6px}
+
+.small{font-size:12px;color:var(--muted)}
+.spinner{width:18px;height:18px;border:3px solid #222;border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media(min-width:900px){h1{font-size:20px}}
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1 id="appTitle">M3U8 Player — dán link m3u8</h1>
+    </header><div class="controls-row">
+  <input id="urlInput" type="text" placeholder="Dán link .m3u8 hoặc nhiều link (ngăn cách bằng newline)" />
+  <button id="loadBtn">Load</button>
+  <button id="clearBtn">Xóa</button>
+</div>
+
+<div class="player-wrap">
+  <video id="video" playsinline controls preload="metadata"></video>
+
+  <div class="player-ui">
+    <button id="playBtn">▶</button>
+    <div class="big-progress">
+      <input id="progress" type="range" min="0" max="100" value="0" step="0.01">
+    </div>
+    <div class="time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
+    <div id="loader" class="spinner" style="display:none"></div>
+  </div>
+
+  <div class="playlist" id="playlist"></div>
+</div>
+
+<p class="small" style="margin-top:10px">Gợi ý: để tua mượt, dùng hls.js (được load tự động). Hệ thống sẽ tự đặt tên bài theo phần cuối của URL.</p>
+
+  </div>  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js"></script>  <script>
+    // Player chính
+    const video = document.getElementById('video')
+    const loadBtn = document.getElementById('loadBtn')
+    const urlInput = document.getElementById('urlInput')
+    const playlistEl = document.getElementById('playlist')
+    const appTitle = document.getElementById('appTitle')
+    const playBtn = document.getElementById('playBtn')
+    const progress = document.getElementById('progress')
+    const cur = document.getElementById('cur')
+    const dur = document.getElementById('dur')
+    const loader = document.getElementById('loader')
+    const clearBtn = document.getElementById('clearBtn')
+
+    let hls = null
+    let playlist = []
+    let currentIndex = 0
+    let seeking = false
+
+    function formatTime(s){
+      if (!isFinite(s) || s<0) return '0:00'
+      const m = Math.floor(s/60)
+      const sec = Math.floor(s%60).toString().padStart(2,'0')
+      return `${m}:${sec}`
+    }
+
+    function setTitleFromUrl(url){
+      try{
+        const u = new URL(url)
+        let parts = u.pathname.split('/')
+        let name = parts.filter(Boolean).pop() || u.hostname
+        name = decodeURIComponent(name).replace(/\.m3u8$/i,'')
+        document.title = name + ' — m3u8'
+        appTitle.textContent = name
+      }catch(e){
+        appTitle.textContent = 'm3u8 Player'
+      }
+    }
+
+    function attachHls(url){
+      // giải phóng nếu có
+      if (hls){ try{ hls.destroy() }catch(e){} hls = null }
+
+      if (video.canPlayType('application/vnd.apple.mpegurl')){
+        // native HLS (Safari, iOS)
+        video.src = url
+      } else if (Hls.isSupported()){
+        hls = new Hls({
+          enableWorker: true,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          fragLoadingTimeOut: 20000,
+          liveSyncDurationCount: 3,
+        })
+        hls.attachMedia(video)
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url))
+
+        // bật loader khi cần
+        hls.on(Hls.Events.FRAG_LOADING, () => showLoader(true))
+        hls.on(Hls.Events.FRAG_LOADED, () => showLoader(false))
+        hls.on(Hls.Events.ERROR, (ev, data) => {
+          console.warn('hls error', data)
+          // tự thử lại khi network error
+          if (data && data.type === Hls.ErrorTypes.NETWORK_ERROR){
+            showLoader(true)
+            setTimeout(()=>{
+              try{ hls.startLoad() }catch(e){}
+            },1500)
+          }
+        })
+      } else {
+        // fallback
+        video.src = url
+      }
+    }
+
+    function showLoader(on){ loader.style.display = on ? 'inline-block' : 'none' }
+
+    function renderPlaylist(){
+      playlistEl.innerHTML = ''
+      playlist.forEach((item, idx)=>{
+        const div = document.createElement('div')
+        div.className = 'item'
+        const t = document.createElement('div')
+        t.className = 'title'
+        t.textContent = item.name
+        const meta = document.createElement('div')
+        meta.className = 'meta'
+        meta.textContent = idx === currentIndex ? 'Đang phát' : ''
+        const btnPlay = document.createElement('button')
+        btnPlay.textContent = '▶'
+        btnPlay.onclick = ()=>{ playIndex(idx) }
+        const btnDel = document.createElement('button')
+        btnDel.textContent = 'X'
+        btnDel.onclick = ()=>{ removeIndex(idx) }
+        div.appendChild(t)
+        div.appendChild(meta)
+        div.appendChild(btnPlay)
+        div.appendChild(btnDel)
+        playlistEl.appendChild(div)
+      })
+    }
+
+    function removeIndex(i){
+      playlist.splice(i,1)
+      if (i === currentIndex) {
+        currentIndex = Math.max(0, currentIndex-1)
+        if (playlist.length) playIndex(currentIndex)
+        else stopPlayer()
+      } else if (i < currentIndex) currentIndex--
+      renderPlaylist()
+    }
+
+    function stopPlayer(){
+      try{ video.pause(); video.removeAttribute('src'); video.load(); }catch(e){}
+      if (hls){ try{ hls.destroy() }catch(e){} hls=null }
+      appTitle.textContent = 'm3u8 Player'
+      document.title = 'm3u8 Player'
+      renderPlaylist()
+    }
+
+    function playIndex(i){
+      if (!playlist[i]) return
+      currentIndex = i
+      renderPlaylist()
+      const url = playlist[i].url
+      setTitleFromUrl(url)
+      attachHls(url)
+      // auto play when source ready
+      video.play().catch(()=>{})
+    }
+
+    loadBtn.addEventListener('click', ()=>{
+      const raw = urlInput.value.trim()
+      if (!raw) return
+      const lines = raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)
+      for (const l of lines){
+        // nếu trùng thì bỏ qua
+        if (!playlist.some(p=>p.url===l)){
+          const name = (()=>{
+            try{ const u=new URL(l); let p=u.pathname.split('/').filter(Boolean).pop(); return decodeURIComponent((p||u.hostname).replace(/\.m3u8$/i,'')) }catch(e){return l}
+          })()
+          playlist.push({url:l,name})
+        }
+      }
+      renderPlaylist()
+      // nếu đang rảnh thì auto phát item mới đầu tiên
+      if (playlist.length && (video.paused || !video.src)){
+        playIndex(playlist.length-1) // phát link vừa thêm
+      }
+    })
+
+    clearBtn.addEventListener('click', ()=>{
+      playlist = []
+      stopPlayer()
+      urlInput.value = ''
+    })
+
+    playBtn.addEventListener('click', ()=>{
+      if (video.paused) video.play()
+      else video.pause()
+    })
+
+    // progress update
+    video.addEventListener('loadedmetadata', ()=>{
+      progress.max = video.duration || 0
+      dur.textContent = formatTime(video.duration)
+    })
+    video.addEventListener('timeupdate', ()=>{
+      if (!seeking){ progress.value = video.currentTime }
+      cur.textContent = formatTime(video.currentTime)
+    })
+
+    // handle user seeking (smooth)
+    progress.addEventListener('input', ()=>{
+      seeking = true
+      cur.textContent = formatTime(progress.value)
+    })
+    progress.addEventListener('change', ()=>{
+      // khi user thả, thực hiện seek
+      const t = parseFloat(progress.value)
+      showLoader(true)
+      // đặt time và chờ event seeked
+      const onSeeked = ()=>{ showLoader(false); video.removeEventListener('seeked', onSeeked) }
+      video.addEventListener('seeked', onSeeked)
+      try{ video.currentTime = t }catch(e){ console.warn('seek failed', e); showLoader(false) }
+      seeking = false
+    })
+
+    // khi video kết thúc -> next
+    video.addEventListener('ended', ()=>{
+      if (currentIndex < playlist.length -1) playIndex(currentIndex+1)
+    })
+
+    // nếu error media -> thông báo
+    video.addEventListener('error', (e)=>{
+      console.error('media error', e)
+      showLoader(false)
+      // thử phát url tiếp theo nếu có
+      if (playlist.length && currentIndex < playlist.length -1) playIndex(currentIndex+1)
+    })
+
+    // shortcut: dán link và nhấn ctrl+v
+    urlInput.addEventListener('paste', (ev)=>{
+      // không cần xử lý — người dùng có thể paste
+    })
+
+    // load last added via double click
+    playlistEl.addEventListener('dblclick', (ev)=>{
+      const item = ev.target.closest('.item')
+      if (!item) return
+      const idx = Array.from(playlistEl.children).indexOf(item)
+      if (idx>=0) playIndex(idx)
+    })
+
+    // khi tab đóng -> dọn
+    window.addEventListener('beforeunload', ()=>{
+      if (hls) try{ hls.destroy() }catch(e){}
+    })
+
+    // Thêm một vài playlist mẫu (bỏ hoặc sửa khi deploy)
+    // playlist.push({url:'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', name:'Mux test stream'})
+    // renderPlaylist()
+
+  </script></body>
+</html>
