@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trình phát nhạc</title>
+    <title>Trình phát nhạc nâng cao</title>
+    <!-- 1. Nhúng thư viện jsmediatags từ CDN để đọc metadata của file MP3 -->
+    <script src="https://cdn.jsdelivr.net/npm/jsmediatags@3.9.8/dist/jsmediatags.min.js"></script>
+
     <style>
-        /* CSS được nhúng trực tiếp vào file HTML */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             display: flex;
@@ -16,7 +18,6 @@
             margin: 0;
             color: #333;
         }
-
         .player-container {
             background-color: white;
             padding: 25px 35px;
@@ -26,71 +27,49 @@
             max-width: 450px;
             text-align: center;
         }
-
-        h1 {
+        #song-title {
             font-size: 1.5em;
-            margin-bottom: 25px;
+            margin-bottom: 5px;
             color: #1c1c1e;
+            height: 2.5em; /* Dành không gian cho tiêu đề */
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        
-        /* Thẻ audio mặc định sẽ được ẩn đi, vì chúng ta tự tạo giao diện điều khiển */
-        #audio-player {
-            display: none;
+        #song-artist {
+            font-size: 1em;
+            margin-bottom: 25px;
+            color: #8e8e93;
         }
-
         .controls {
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 15px;
         }
-
         #play-pause-btn {
-            padding: 12px 22px;
-            font-size: 1.1em;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            background-color: #007aff;
-            color: white;
-            font-weight: 500;
-            transition: background-color 0.2s ease;
+            padding: 12px 22px; font-size: 1.1em; border: none;
+            border-radius: 8px; cursor: pointer; background-color: #007aff;
+            color: white; font-weight: 500; transition: background-color 0.2s ease;
         }
-        
-        #play-pause-btn:hover {
-             background-color: #005ecb;
-        }
-
-        .time-container {
-            font-size: 1em;
-            font-weight: 500;
-            color: #6c6c70;
-        }
-
+        #play-pause-btn:hover { background-color: #005ecb; }
+        .time-container { font-size: 1em; font-weight: 500; color: #6c6c70; }
         .progress-container {
-            background-color: #e9e9ed;
-            border-radius: 5px;
-            cursor: pointer;
-            height: 8px;
-            width: 100%;
+            background-color: #e9e9ed; border-radius: 5px; cursor: pointer;
+            height: 8px; width: 100%;
         }
-
         .progress {
-            background-color: #007aff;
-            border-radius: 5px;
-            height: 100%;
-            width: 0%;
-            /* Bỏ transition để việc tua/seeking mượt hơn, không bị trễ */
+            background-color: #007aff; border-radius: 5px; height: 100%; width: 0%;
         }
     </style>
 </head>
 <body>
 
     <div class="player-container">
-        <h1>Trình phát nhạc thông minh</h1>
+        <h1 id="song-title">Đang tải thông tin...</h1>
+        <p id="song-artist"></p>
         
-        <!-- URL nhạc được đặt trực tiếp ở đây -->
-        <audio id="audio-player" src="https://www.kaggle.com/api/v1/datasets/download/teo30393o3/music766/5_6217735145516963170.mp3"></audio>
+        <audio id="audio-player"></audio>
 
         <div class="controls">
             <button id="play-pause-btn" class="play">Phát</button>
@@ -105,79 +84,152 @@
     </div>
 
     <script>
-        // JavaScript được nhúng trực tiếp vào file HTML
-        const audioPlayer = document.getElementById('audio-player');
-        const playPauseBtn = document.getElementById('play-pause-btn');
-        const progressContainer = document.getElementById('progress-container');
-        const progress = document.getElementById('progress');
-        const currentTimeEl = document.getElementById('current-time');
-        const totalDurationEl = document.getElementById('total-duration');
+        window.onload = () => {
+            const audioPlayer = document.getElementById('audio-player');
+            const playPauseBtn = document.getElementById('play-pause-btn');
+            const progressContainer = document.getElementById('progress-container');
+            const progress = document.getElementById('progress');
+            const currentTimeEl = document.getElementById('current-time');
+            const totalDurationEl = document.getElementById('total-duration');
+            const songTitleEl = document.getElementById('song-title');
+            const songArtistEl = document.getElementById('song-artist');
 
-        let isPlaying = false;
+            const musicUrl = 'https://www.kaggle.com/api/v1/datasets/download/teo30393o3/music766/5_6217735145516963170.mp3';
+            const CHUNK_SIZE = 1024 * 1024; // 1MB
 
-        // Hàm định dạng thời gian từ giây sang MM:SS
-        function formatTime(seconds) {
-            const minutes = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
-        }
-
-        // Chức năng chơi nhạc
-        function playSong() {
-            isPlaying = true;
-            audioPlayer.play();
-            playPauseBtn.textContent = 'Tạm dừng';
-        }
-
-        // Chức năng dừng nhạc
-        function pauseSong() {
-            isPlaying = false;
-            audioPlayer.pause();
-            playPauseBtn.textContent = 'Phát';
-        }
-
-        // --- CÁC BỘ LẮNG NGHE SỰ KIỆN ---
-
-        // 1. Tự động lấy độ dài bài hát khi metadata đã sẵn sàng
-        audioPlayer.addEventListener('loadedmetadata', () => {
-            totalDurationEl.textContent = formatTime(audioPlayer.duration);
-        });
-
-        // 2. Cập nhật thanh tiến trình và thời gian hiện tại khi nhạc đang phát
-        audioPlayer.addEventListener('timeupdate', () => {
-            const { duration, currentTime } = audioPlayer;
-            if (duration) { // Chỉ cập nhật nếu duration đã có
-                const progressPercent = (currentTime / duration) * 100;
-                progress.style.width = `${progressPercent}%`;
-                currentTimeEl.textContent = formatTime(currentTime);
-            }
-        });
-
-        // 3. Xử lý nút play/pause
-        playPauseBtn.addEventListener('click', () => {
-            if (isPlaying) {
-                pauseSong();
-            } else {
-                playSong();
-            }
-        });
-
-        // 4. Xử lý việc tua (seeking) khi người dùng click vào thanh tiến trình
-        progressContainer.addEventListener('click', function(e) {
-            const width = this.clientWidth;       // Lấy tổng chiều rộng của thanh tiến trình
-            const clickX = e.offsetX;             // Lấy vị trí click chuột theo chiều ngang
-            const duration = audioPlayer.duration;// Lấy tổng độ dài bài hát
+            let mediaSource = new MediaSource();
+            let sourceBuffer;
+            let totalSegments = 0;
+            let currentSegment = 0;
+            let isPlaying = false;
+            let isSeeking = false;
             
-            // Đặt thời gian hiện tại của bài hát tương ứng với vị trí click
-            // Trình duyệt sẽ tự động gửi yêu cầu tải chunk mới (HTTP Range Request)
-            if (duration) {
-                audioPlayer.currentTime = (clickX / width) * duration;
+            // --- BƯỚC 1: LẤY THÔNG TIN BÀI HÁT VÀ KÍCH THƯỚC FILE ---
+
+            function initializePlayer() {
+                // Lấy tên bài hát
+                jsmediatags.read(musicUrl, {
+                    onSuccess: function(tag) {
+                        const title = tag.tags.title || "Không rõ tiêu đề";
+                        const artist = tag.tags.artist || "Không rõ nghệ sĩ";
+                        songTitleEl.textContent = title;
+                        songArtistEl.textContent = artist;
+                        document.title = `${title} - ${artist}`;
+                    },
+                    onError: function(error) {
+                        console.log('Error reading tags:', error.type, error.info);
+                        songTitleEl.textContent = "Không thể đọc thông tin";
+                    }
+                });
+
+                // Lấy kích thước tổng của file để biết cần tải bao nhiêu chunk
+                fetch(musicUrl, { method: 'HEAD' })
+                    .then(response => {
+                        const contentLength = response.headers.get('Content-Length');
+                        if (contentLength) {
+                            totalSegments = Math.ceil(contentLength / CHUNK_SIZE);
+                            console.log(`File size: ${contentLength} bytes, Total chunks: ${totalSegments}`);
+                            setupMediaSource();
+                        } else {
+                            throw new Error("Server không hỗ trợ Content-Length.");
+                        }
+                    }).catch(err => {
+                        console.error("Lỗi khi lấy kích thước file: ", err);
+                        songTitleEl.textContent = "Lỗi tải nhạc";
+                    });
             }
-        });
 
-        // 5. Xử lý khi bài hát kết thúc
-        audioPlayer.addEventListener('ended', pauseSong);
+            // --- BƯỚC 2: THIẾT LẬP MEDIA SOURCE EXTENSIONS ---
+
+            function setupMediaSource() {
+                audioPlayer.src = URL.createObjectURL(mediaSource);
+                mediaSource.addEventListener('sourceopen', onSourceOpen);
+            }
+
+            function onSourceOpen() {
+                console.log("MediaSource is open.");
+                // Trình duyệt cần biết loại file chúng ta sẽ "đút" cho nó
+                sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+                // Bắt đầu tải chunk đầu tiên
+                fetchAndAppendChunk(0);
+
+                // Lắng nghe sự kiện để tải chunk tiếp theo khi cần
+                sourceBuffer.addEventListener('updateend', () => {
+                    if (!isSeeking && isPlaying && currentSegment < totalSegments - 1) {
+                         currentSegment++;
+                         fetchAndAppendChunk(currentSegment);
+                    }
+                });
+            }
+
+            // --- BƯỚC 3: TẢI VÀ "ĐÚT" CHUNK VÀO BUFFER ---
+
+            function fetchAndAppendChunk(segmentIndex) {
+                const start = segmentIndex * CHUNK_SIZE;
+                const end = start + CHUNK_SIZE - 1;
+
+                console.log(`Fetching chunk ${segmentIndex}: bytes=${start}-${end}`);
+
+                fetch(musicUrl, { headers: { 'Range': `bytes=${start}-${end}` } })
+                    .then(response => response.arrayBuffer())
+                    .then(data => {
+                        // Thêm chunk dữ liệu vào buffer
+                        if (!sourceBuffer.updating) {
+                           sourceBuffer.appendBuffer(data);
+                        }
+                    }).catch(err => console.error("Lỗi tải chunk: ", err));
+            }
+
+
+            // --- BƯỚC 4: XỬ LÝ GIAO DIỆN VÀ ĐIỀU KHIỂN ---
+            
+            function formatTime(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+            }
+
+            playPauseBtn.addEventListener('click', () => {
+                if (isPlaying) {
+                    audioPlayer.pause();
+                } else {
+                    audioPlayer.play();
+                }
+                isPlaying = !isPlaying;
+                playPauseBtn.textContent = isPlaying ? 'Tạm dừng' : 'Phát';
+            });
+            
+            audioPlayer.addEventListener('loadedmetadata', () => {
+                 totalDurationEl.textContent = formatTime(audioPlayer.duration);
+            });
+
+            audioPlayer.addEventListener('timeupdate', () => {
+                const { duration, currentTime } = audioPlayer;
+                if (duration) {
+                    if(!totalDurationEl.textContent || totalDurationEl.textContent === "0:00") {
+                       totalDurationEl.textContent = formatTime(duration);
+                    }
+                    progress.style.width = `${(currentTime / duration) * 100}%`;
+                    currentTimeEl.textContent = formatTime(currentTime);
+                }
+            });
+
+            progressContainer.addEventListener('click', (e) => {
+                const width = progressContainer.clientWidth;
+                const clickX = e.offsetX;
+                const duration = audioPlayer.duration;
+                if (duration) {
+                    isSeeking = true;
+                    audioPlayer.currentTime = (clickX / width) * duration;
+                    // Sau khi tua, chúng ta cần xác định lại chunk cần tải
+                    // logic nâng cao hơn sẽ được cần đến ở đây để quản lý buffer
+                    // nhưng trình duyệt thường xử lý khá tốt việc yêu cầu dữ liệu thiếu
+                    setTimeout(() => isSeeking = false, 200);
+                }
+            });
+            
+            initializePlayer();
+        };
     </script>
-
 </body>
 </html>
